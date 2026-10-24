@@ -1,0 +1,1 @@
+{"version":3,"file":"saleRequestUseCase.d.ts","sourceRoot":"","sources":["saleRequestUseCase.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,sBAAsB,EAAE,oBAAoB,EAAE,MAAM,uBAAuB,CAAC;AAErF,qBAAa,kBAAkB;IACjB,OAAO,CAAC,qBAAqB;IAAzC,YAAoB,qBAAqB,EAAE,sBAAsB,EAAI;IAE/D,cAAc,2DAEnB;IAEK,aAAa,CAAC,MAAM,EAAE,MAAM,0DAEjC;IAEK,aAAa,CAAC,MAAM,EAAE,MAAM,EAAE,WAAW,EAAE,oBAAoB,wDAEpE;CACF"}

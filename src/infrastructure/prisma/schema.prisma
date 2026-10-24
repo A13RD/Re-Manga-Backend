@@ -1,0 +1,145 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum MangaCondition {
+  NEW
+  LIKE_NEW
+  GOOD
+  FAIR
+  POOR
+}
+
+enum OrderStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum SaleRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  favorites       Favorite[]
+  orders          Order[]
+  givenReviews    Review[]      @relation("Reviewer")
+  receivedReviews Review[]      @relation("Seller")
+  saleRequests    SaleRequest[]
+  mangasForSale   Manga[]       @relation("SellerMangas")
+}
+
+model Manga {
+  id          String         @id @default(uuid())
+  title       String
+  volume      Int?
+  author      String
+  genre       String
+  description String
+  image       String?
+  price       Decimal
+  condition   MangaCondition
+  stock       Int            @default(1)
+  sellerId    String?        // Optional in case the admin/store owns it
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  seller       User?         @relation("SellerMangas", fields: [sellerId], references: [id])
+  favorites    Favorite[]
+  orderItems   OrderItem[]
+  saleRequests SaleRequest[]
+}
+
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  mangaId   String
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id])
+  manga Manga @relation(fields: [mangaId], references: [id])
+
+  @@unique([userId, mangaId])
+}
+
+model Order {
+  id          String      @id @default(uuid())
+  userId      String
+  totalAmount Decimal
+  status      OrderStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id])
+  orderItems OrderItem[]
+  reviews    Review[]
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  mangaId   String
+  quantity  Int
+  unitPrice Decimal // Price of the manga when the order was placed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id])
+  manga Manga @relation(fields: [mangaId], references: [id])
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  reviewerId String
+  sellerId   String
+  orderId    String?
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  reviewer User   @relation("Reviewer", fields: [reviewerId], references: [id])
+  seller   User   @relation("Seller", fields: [sellerId], references: [id])
+  order    Order? @relation(fields: [orderId], references: [id])
+}
+
+model SaleRequest {
+  id            String            @id @default(uuid())
+  userId        String
+  title         String
+  volume        Int?
+  author        String
+  genre         String
+  description   String
+  image         String?
+  proposedPrice Decimal
+  condition     MangaCondition
+  status        SaleRequestStatus @default(PENDING)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  mangaId       String?
+  manga         Manga?            @relation(fields: [mangaId], references: [id])
+  user          User              @relation(fields: [userId], references: [id])
+}
