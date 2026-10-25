@@ -1,26 +1,38 @@
-import express from 'express';
-import cors from 'cors';
 import dotenv from 'dotenv';
+dotenv.config();
+
+import express, { Request, Response } from 'express';
+import cors from 'cors';
 import mangaRoutes from './interface/routes/mangaRoutes';
 import saleRequestRoutes from './interface/routes/saleRequestRoutes';
 import { errorHandler } from './interface/middlewares/errorHandler';
 
-dotenv.config();
-
 const app = express();
-const PORT = process.env.PORT || 3000;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5500';
+const PORT = process.env.PORT || 4000;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 app.use(cors({
   origin: FRONTEND_URL
 }));
 app.use(express.json());
 
+// Ruta de salud para comprobaciones de estado del servidor
+app.get('/api/health', (req: Request, res: Response) => {
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
+});
+
 app.use('/api/mangas', mangaRoutes);
 app.use('/api/solicitudes', saleRequestRoutes);
+
+// Manejador para rutas inexistentes (404 controlado en formato JSON)
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ message: `Cannot ${req.method} ${req.path}` });
+});
 
 app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+export default app;
