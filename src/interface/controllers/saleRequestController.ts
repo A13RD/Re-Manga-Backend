@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { SaleRequestUseCase } from '../../application/saleRequestUseCase';
 
+const VALID_CONDITIONS = ['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'POOR'];
+
 export class SaleRequestController {
   constructor(private saleRequestUseCase: SaleRequestUseCase) {}
 
@@ -34,12 +36,28 @@ export class SaleRequestController {
         return res.status(401).json({ message: 'No autorizado: sesión no identificada' });
       }
 
-      const { title, author, genre, description, proposedPrice, condition, volume, image } = req.body;
-      if (!title || !author || !genre || !description || proposedPrice === undefined || !condition) {
+      const { title, author, genre, description, proposedPrice, condition, volume, image } = (req.body || {}) as Record<string, unknown>;
+
+      const titleStr = typeof title === 'string' ? title.trim() : '';
+      const authorStr = typeof author === 'string' ? author.trim() : '';
+      const genreStr = typeof genre === 'string' ? genre.trim() : '';
+      const descriptionStr = typeof description === 'string' ? description.trim() : '';
+      const conditionStr = typeof condition === 'string' ? condition.trim().toUpperCase() : '';
+
+      if (!titleStr || !authorStr || !genreStr || !descriptionStr || proposedPrice === undefined || proposedPrice === null || proposedPrice === '' || !conditionStr) {
         return res.status(400).json({ message: 'Faltan campos obligatorios' });
       }
 
-      // Estructuración controlada: se ignora explícitamente cualquier userId enviado en el body
+      if (!VALID_CONDITIONS.includes(conditionStr)) {
+        return res.status(400).json({ message: 'Condición del manga inválida' });
+      }
+
+      const priceNum = Number(proposedPrice);
+      if (!Number.isFinite(priceNum) || priceNum <= 0) {
+        return res.status(400).json({ message: 'El precio propuesto debe ser un número válido mayor que 0' });
+      }
+
+      // Estructuración controlada: se ignora explícitamente cualquier userId o status enviado en el body
       const requestData: {
         title: string;
         author: string;
@@ -50,19 +68,23 @@ export class SaleRequestController {
         volume?: number;
         image?: string;
       } = {
-        title: String(title),
-        author: String(author),
-        genre: String(genre),
-        description: String(description),
-        proposedPrice: Number(proposedPrice),
-        condition: String(condition),
+        title: titleStr,
+        author: authorStr,
+        genre: genreStr,
+        description: descriptionStr,
+        proposedPrice: priceNum,
+        condition: conditionStr,
       };
 
       if (volume !== undefined && volume !== null && volume !== '') {
-        requestData.volume = Number(volume);
+        const volumeNum = Number(volume);
+        if (!Number.isInteger(volumeNum) || volumeNum <= 0) {
+          return res.status(400).json({ message: 'El volumen debe ser un número entero mayor que 0' });
+        }
+        requestData.volume = volumeNum;
       }
-      if (image !== undefined && image !== null && image !== '') {
-        requestData.image = String(image);
+      if (image !== undefined && image !== null && typeof image === 'string' && image.trim() !== '') {
+        requestData.image = image.trim();
       }
 
       const newRequest = await this.saleRequestUseCase.createRequest(userId, requestData);

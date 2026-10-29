@@ -19,9 +19,9 @@ export class AuthUseCase {
   constructor(private userRepository: IUserRepository) {}
 
   async register(dto: RegisterUserDTO): Promise<{ user: UserPublic }> {
-    const name = dto.name?.trim();
-    const rawEmail = dto.email?.trim();
-    const password = dto.password;
+    const name = typeof dto?.name === 'string' ? dto.name.trim() : '';
+    const rawEmail = typeof dto?.email === 'string' ? dto.email.trim() : '';
+    const password = typeof dto?.password === 'string' ? dto.password : '';
 
     // Validación de campos obligatorios
     if (!name) {
@@ -70,8 +70,8 @@ export class AuthUseCase {
   }
 
   async login(dto: LoginDTO): Promise<{ token: string; user: UserPublic }> {
-    const rawEmail = dto.email?.trim();
-    const password = dto.password;
+    const rawEmail = typeof dto?.email === 'string' ? dto.email.trim() : '';
+    const password = typeof dto?.password === 'string' ? dto.password : '';
 
     if (!rawEmail || !password) {
       throw new ValidationError('El correo y la contraseña son obligatorios');

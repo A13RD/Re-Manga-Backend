@@ -26,6 +26,11 @@ export class FavoriteRepository implements IFavoriteRepository {
   }
 
   async add(userId: string, mangaId: string): Promise<Favorite> {
+    const manga = await prisma.manga.findUnique({ where: { id: mangaId } });
+    if (!manga) {
+      throw new Error('Manga not found');
+    }
+
     const created = await prisma.favorite.upsert({
       where: {
         userId_mangaId: {

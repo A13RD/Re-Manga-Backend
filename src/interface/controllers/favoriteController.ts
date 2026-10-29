@@ -25,14 +25,18 @@ export class FavoriteController {
         return res.status(401).json({ message: 'No autorizado: usuario no autenticado' });
       }
 
-      const { mangaId } = req.body as { mangaId?: string };
-      if (!mangaId) {
-        return res.status(400).json({ message: 'mangaId es requerido' });
+      const { mangaId } = (req.body || {}) as { mangaId?: unknown };
+      const mangaIdStr = typeof mangaId === 'string' ? mangaId.trim() : '';
+      if (!mangaIdStr) {
+        return res.status(400).json({ message: 'mangaId es requerido y debe ser una cadena válida' });
       }
 
-      const favorite = await this.favoriteUseCase.addFavorite(userId, mangaId);
+      const favorite = await this.favoriteUseCase.addFavorite(userId, mangaIdStr);
       res.status(201).json(favorite);
-    } catch (error) {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message === 'Manga not found') {
+        return res.status(404).json({ message: 'El manga especificado no existe' });
+      }
       next(error);
     }
   };
@@ -45,7 +49,7 @@ export class FavoriteController {
       }
 
       const rawMangaId = req.params['mangaId'];
-      const mangaId = typeof rawMangaId === 'string' ? rawMangaId : undefined;
+      const mangaId = typeof rawMangaId === 'string' ? rawMangaId.trim() : undefined;
       if (!mangaId) {
         return res.status(400).json({ message: 'mangaId es requerido' });
       }

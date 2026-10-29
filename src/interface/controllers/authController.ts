@@ -7,13 +7,13 @@ export class AuthController {
 
   register = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, nombre, email, password } = req.body;
-      const userName = name || nombre;
+      const { name, nombre, email, password } = (req.body || {}) as Record<string, unknown>;
+      const userName = typeof name === 'string' && name.trim() ? name : (typeof nombre === 'string' ? nombre : '');
 
       const result = await this.authUseCase.register({
         name: userName,
-        email,
-        password,
+        email: typeof email === 'string' ? email : '',
+        password: typeof password === 'string' ? password : '',
       });
 
       res.status(201).json({
@@ -30,11 +30,11 @@ export class AuthController {
 
   login = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, password } = req.body;
+      const { email, password } = (req.body || {}) as Record<string, unknown>;
 
       const result = await this.authUseCase.login({
-        email,
-        password,
+        email: typeof email === 'string' ? email : '',
+        password: typeof password === 'string' ? password : '',
       });
 
       res.status(200).json({

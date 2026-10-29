@@ -52,8 +52,15 @@ export class MangaRepository implements IMangaRepository {
   }
 
   async update(id: string, manga: UpdateMangaDTO): Promise<Manga> {
-    const dataToUpdate: any = { ...manga };
-    
+    const dataToUpdate: Record<string, unknown> = {};
+
+    if (manga.title !== undefined) dataToUpdate.title = manga.title;
+    if (manga.volume !== undefined) dataToUpdate.volume = manga.volume;
+    if (manga.author !== undefined) dataToUpdate.author = manga.author;
+    if (manga.genre !== undefined) dataToUpdate.genre = manga.genre;
+    if (manga.description !== undefined) dataToUpdate.description = manga.description;
+    if (manga.image !== undefined) dataToUpdate.image = manga.image || null;
+    if (manga.stock !== undefined) dataToUpdate.stock = manga.stock;
     if (manga.price !== undefined) {
       dataToUpdate.price = new Prisma.Decimal(manga.price);
     }

@@ -13,7 +13,7 @@ export class OrderRepository implements IOrderRepository {
       const orderItemsData: { mangaId: string; quantity: number; unitPrice: Prisma.Decimal }[] = [];
 
       for (const item of items) {
-        if (!item.mangaId || item.quantity <= 0) {
+        if (!item?.mangaId || typeof item.mangaId !== 'string' || !Number.isInteger(item.quantity) || item.quantity <= 0) {
           throw new Error('Cantidad no válida para uno o más productos');
         }
 
