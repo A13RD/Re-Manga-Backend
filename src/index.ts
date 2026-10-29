@@ -6,6 +6,8 @@ import cors from 'cors';
 import authRoutes from './interface/routes/authRoutes';
 import mangaRoutes from './interface/routes/mangaRoutes';
 import saleRequestRoutes from './interface/routes/saleRequestRoutes';
+import favoriteRoutes from './interface/routes/favoriteRoutes';
+import orderRoutes from './interface/routes/orderRoutes';
 import { errorHandler } from './interface/middlewares/errorHandler';
 
 const app = express();
@@ -25,6 +27,8 @@ app.get('/api/health', (req: Request, res: Response) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/mangas', mangaRoutes);
 app.use('/api/solicitudes', saleRequestRoutes);
+app.use('/api/favorites', favoriteRoutes);
+app.use('/api/orders', orderRoutes);
 
 // Manejador para rutas inexistentes (404 controlado en formato JSON)
 app.use((req: Request, res: Response) => {
