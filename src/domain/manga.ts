@@ -28,8 +28,13 @@ export interface CreateMangaDTO {
 
 export interface UpdateMangaDTO extends Partial<CreateMangaDTO> {}
 
+export interface MangaFilterOptions {
+  search?: string;
+  genre?: string;
+}
+
 export interface IMangaRepository {
-  findAll(page: number, pageSize: number): Promise<{ data: Manga[], total: number }>;
+  findAll(page: number, pageSize: number, filters?: MangaFilterOptions): Promise<{ data: Manga[], total: number }>;
   findById(id: string): Promise<Manga | null>;
   create(manga: CreateMangaDTO): Promise<Manga>;
   update(id: string, manga: UpdateMangaDTO): Promise<Manga>;

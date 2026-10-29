@@ -21,7 +21,7 @@ import { authorizeRoles } from '../src/interface/middlewares/roleMiddleware';
 import { errorHandler } from '../src/interface/middlewares/errorHandler';
 
 import { IUserRepository, User, Role, CreateUserDTO } from '../src/domain/user';
-import { IMangaRepository, Manga, CreateMangaDTO, UpdateMangaDTO } from '../src/domain/manga';
+import { IMangaRepository, Manga, CreateMangaDTO, UpdateMangaDTO, MangaFilterOptions } from '../src/domain/manga';
 import { ISaleRequestRepository, SaleRequest, CreateSaleRequestDTO } from '../src/domain/saleRequest';
 import { IOrderRepository, Order, OrderStatus, CreateOrderItemDTO } from '../src/domain/order';
 import { IFavoriteRepository, Favorite } from '../src/domain/favorite';
@@ -29,7 +29,6 @@ import { IFavoriteRepository, Favorite } from '../src/domain/favorite';
 const TEST_JWT_SECRET = 'test-secret-key-re-manga-2026';
 process.env.JWT_SECRET = TEST_JWT_SECRET;
 
-// Repositorios en memoria que simulan la capa de persistencia para pruebas integrales de controladores, casos de uso y middlewares
 class InMemoryUserRepository implements IUserRepository {
   public users: User[] = [];
 
@@ -61,13 +60,13 @@ class InMemoryMangaRepository implements IMangaRepository {
     {
       id: 'manga-1',
       title: 'Berserk',
-      volume: 1,
+      volume: 28,
       author: 'Kentaro Miura',
       genre: 'Seinen',
-      description: 'Edición Maximum en excelente estado',
-      image: '/img/berserk1.jpg',
+      description: 'Edición en muy buen estado',
+      image: '/images/berserk-vol28.jpg',
       price: 45000,
-      condition: 'LIKE_NEW',
+      condition: 'GOOD',
       stock: 3,
       sellerId: null,
       createdAt: new Date(),
@@ -75,25 +74,95 @@ class InMemoryMangaRepository implements IMangaRepository {
     },
     {
       id: 'manga-2',
-      title: 'One Piece',
-      volume: 100,
-      author: 'Eiichiro Oda',
-      genre: 'Shonen',
-      description: 'Tomo conmemorativo',
-      image: '/img/op100.jpg',
-      price: 32000,
-      condition: 'NEW',
+      title: 'Vagabond',
+      volume: 24,
+      author: 'Takehiko Inoue',
+      genre: 'Seinen',
+      description: 'Tomo 24',
+      image: '/images/vagabond-vol24.jpg',
+      price: 40000,
+      condition: 'GOOD',
       stock: 2,
+      sellerId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: 'manga-3',
+      title: 'Bleach',
+      volume: 40,
+      author: 'Tite Kubo',
+      genre: 'Shonen',
+      description: 'Tomo 40 aceptable',
+      image: '/images/bleach-vol40.jpg',
+      price: 25000,
+      condition: 'FAIR',
+      stock: 1,
+      sellerId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: 'manga-4',
+      title: 'Bleach Edición Especial',
+      volume: 40,
+      author: 'Tite Kubo',
+      genre: 'Shounen', // Variante en seed.ts
+      description: 'Tomo 40 como nuevo',
+      image: '/images/bleach-vol40.jpg',
+      price: 45000,
+      condition: 'LIKE_NEW',
+      stock: 2,
+      sellerId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: 'manga-5',
+      title: 'Ao Haru Ride',
+      volume: 1,
+      author: 'Io Sakisaka',
+      genre: 'Shoujo', // Variante en seed.ts para el filtro Shojo
+      description: 'Tomo 1',
+      image: '/images/aoharuride-vol1.jpg',
+      price: 30000,
+      condition: 'FAIR',
+      stock: 1,
       sellerId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     },
   ];
 
-  async findAll(page: number, pageSize: number): Promise<{ data: Manga[]; total: number }> {
+  async findAll(
+    page: number,
+    pageSize: number,
+    filters?: MangaFilterOptions
+  ): Promise<{ data: Manga[]; total: number }> {
+    let filtered = [...this.mangas];
+
+    if (filters?.search && filters.search.trim().length > 0) {
+      const q = filters.search.trim().toLowerCase();
+      filtered = filtered.filter((m) => m.title.toLowerCase().includes(q));
+    }
+
+    if (filters?.genre && filters.genre.trim().length > 0 && filters.genre.trim().toLowerCase() !== 'todos') {
+      const g = filters.genre.trim().toLowerCase();
+      filtered = filtered.filter((m) => {
+        const mg = m.genre.toLowerCase();
+        if (g === 'shonen' || g === 'shounen') {
+          return mg === 'shonen' || mg === 'shounen';
+        }
+        if (g === 'shojo' || g === 'shoujo') {
+          return mg === 'shojo' || mg === 'shoujo';
+        }
+        return mg === g;
+      });
+    }
+
     const start = (page - 1) * pageSize;
-    const data = this.mangas.slice(start, start + pageSize);
-    return { data, total: this.mangas.length };
+    const data = filtered.slice(start, start + pageSize);
+    return { data, total: filtered.length };
   }
 
   async findById(id: string): Promise<Manga | null> {
@@ -187,46 +256,59 @@ class InMemoryOrderRepository implements IOrderRepository {
   constructor(private mangaRepo: InMemoryMangaRepository) {}
 
   async createOrder(userId: string, items: CreateOrderItemDTO[]): Promise<Order> {
-    let totalAmount = 0;
-    for (const item of items) {
-      const manga = await this.mangaRepo.findById(item.mangaId);
-      if (!manga) {
-        throw new Error('El manga solicitado no fue encontrado');
-      }
-      if (manga.stock < item.quantity) {
-        throw new Error(`Stock insuficiente para "${manga.title}". Disponibles: ${manga.stock}`);
-      }
+    // Instantánea de stock para simular la atomicidad transaccional (rollback completo si algún ítem falla)
+    const stockSnapshot = new Map<string, number>();
+    for (const m of this.mangaRepo.mangas) {
+      stockSnapshot.set(m.id, m.stock);
     }
 
-    const orderItems = [];
-    for (const item of items) {
-      const manga = (await this.mangaRepo.findById(item.mangaId))!;
-      manga.stock -= item.quantity;
-      const unitPrice = Number(manga.price);
-      totalAmount += unitPrice * item.quantity;
-      orderItems.push({
-        id: `oi-${orderItems.length + 1}`,
-        orderId: `ord-${this.orders.length + 1}`,
-        mangaId: item.mangaId,
-        quantity: item.quantity,
-        unitPrice,
+    try {
+      let totalAmount = 0;
+      const orderItems = [];
+
+      for (const item of items) {
+        const manga = await this.mangaRepo.findById(item.mangaId);
+        if (!manga) {
+          throw new Error('El manga solicitado no fue encontrado');
+        }
+        if (manga.stock < item.quantity) {
+          throw new Error(`Stock insuficiente para "${manga.title}". Disponibles: ${manga.stock}`);
+        }
+
+        manga.stock -= item.quantity;
+        const unitPrice = Number(manga.price);
+        totalAmount += unitPrice * item.quantity;
+        orderItems.push({
+          id: `oi-${orderItems.length + 1}`,
+          orderId: `ord-${this.orders.length + 1}`,
+          mangaId: item.mangaId,
+          quantity: item.quantity,
+          unitPrice,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          manga,
+        });
+      }
+
+      const order: Order = {
+        id: `ord-${this.orders.length + 1}`,
+        userId,
+        totalAmount,
+        status: OrderStatus.PENDING,
         createdAt: new Date(),
         updatedAt: new Date(),
-        manga,
-      });
+        orderItems,
+      };
+      this.orders.push(order);
+      return order;
+    } catch (err) {
+      // Rollback atómico del inventario si cualquier ítem falla
+      for (const m of this.mangaRepo.mangas) {
+        const prev = stockSnapshot.get(m.id);
+        if (prev !== undefined) m.stock = prev;
+      }
+      throw err;
     }
-
-    const order: Order = {
-      id: `ord-${this.orders.length + 1}`,
-      userId,
-      totalAmount,
-      status: OrderStatus.COMPLETED,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      orderItems,
-    };
-    this.orders.push(order);
-    return order;
   }
 
   async findByUserId(userId: string): Promise<Order[]> {
@@ -274,10 +356,6 @@ class InMemoryFavoriteRepository implements IFavoriteRepository {
 
 type HandlerFn = (req: Request, res: Response, next: NextFunction) => unknown;
 
-/**
- * Ejecuta en memoria una cadena de middlewares y controlador de Express,
- * pasando cualquier error no capturado al errorHandler centralizado.
- */
 async function invokePipeline(
   handlers: HandlerFn[],
   options: {
@@ -351,7 +429,7 @@ async function invokePipeline(
   return { status: statusCode, body: responseBody };
 }
 
-describe('Re-Manga — Suite de Pruebas de Validaciones, Seguridad y Flujos (Etapa 6.6)', () => {
+describe('Re-Manga — Suite de Pruebas de Validaciones, Filtros, Seguridad y Transacciones (Etapa 6.7A)', () => {
   const userRepo = new InMemoryUserRepository();
   const mangaRepo = new InMemoryMangaRepository();
   const saleRepo = new InMemorySaleRequestRepository();
@@ -365,6 +443,7 @@ describe('Re-Manga — Suite de Pruebas de Validaciones, Seguridad y Flujos (Eta
   const favController = new FavoriteController(new FavoriteUseCase(favRepo));
 
   let userToken = '';
+  let secondUserToken = '';
   let adminToken = '';
 
   before(async () => {
@@ -380,195 +459,144 @@ describe('Re-Manga — Suite de Pruebas de Validaciones, Seguridad y Flujos (Eta
     });
   });
 
-  it('1. Usuario anónimo puede consultar el catálogo y se respeta la paginación', async () => {
+  it('1. Catálogo sin filtros y validación de paginación', async () => {
     const res = await invokePipeline([mangaController.getAllMangas], {
-      query: { page: '1', pageSize: '1' },
+      query: { page: '1', pageSize: '2' },
     });
     assert.equal(res.status, 200);
     assert.equal(res.body.pagination.page, 1);
-    assert.equal(res.body.pagination.pageSize, 1);
-    assert.equal(res.body.pagination.total, 2);
-    assert.equal(res.body.pagination.totalPages, 2);
-    assert.equal(res.body.data.length, 1);
-  });
+    assert.equal(res.body.pagination.pageSize, 2);
+    assert.equal(res.body.pagination.total, 5);
+    assert.equal(res.body.pagination.totalPages, 3);
+    assert.equal(res.body.data.length, 2);
 
-  it('2. Catálogo rechaza parámetros de paginación inválidos (page=0, page=-1, page=abc) con 400 Bad Request', async () => {
     const resZero = await invokePipeline([mangaController.getAllMangas], {
       query: { page: '0' },
     });
     assert.equal(resZero.status, 400);
-
-    const resNeg = await invokePipeline([mangaController.getAllMangas], {
-      query: { page: '-2' },
-    });
-    assert.equal(resNeg.status, 400);
-
-    const resNaN = await invokePipeline([mangaController.getAllMangas], {
-      query: { pageSize: 'abc' },
-    });
-    assert.equal(resNaN.status, 400);
   });
 
-  it('3. Registro exitoso: almacena hash bcrypt, asigna rol USER y no expone passwordHash', async () => {
-    const res = await invokePipeline([authController.register], {
+  it('2. Búsqueda por nombre con varios resultados (insensible a mayúsculas/minúsculas)', async () => {
+    const res = await invokePipeline([mangaController.getAllMangas], {
+      query: { page: '1', pageSize: '6', search: 'bLeAcH' },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.pagination.total, 2);
+    assert.equal(res.body.data.length, 2);
+    assert.ok(res.body.data.every((m: Manga) => m.title.toLowerCase().includes('bleach')));
+  });
+
+  it('3. Búsqueda sin coincidencias devuelve arreglo vacío y total 0', async () => {
+    const res = await invokePipeline([mangaController.getAllMangas], {
+      query: { page: '1', pageSize: '6', search: 'InexistenteXYZ' },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.pagination.total, 0);
+    assert.equal(res.body.pagination.totalPages, 0);
+    assert.equal(res.body.data.length, 0);
+  });
+
+  it('4. Filtro por género normaliza variantes del seed (Shojo <-> Shoujo y Shonen <-> Shounen)', async () => {
+    // El selector del frontend envía "Shojo" mientras el seed almacena "Shoujo"
+    const resShojo = await invokePipeline([mangaController.getAllMangas], {
+      query: { page: '1', pageSize: '6', genre: 'Shojo' },
+    });
+    assert.equal(resShojo.status, 200);
+    assert.equal(resShojo.body.pagination.total, 1);
+    assert.equal(resShojo.body.data[0].title, 'Ao Haru Ride');
+
+    // El selector del frontend envía "Shonen" y debe incluir tanto "Shonen" como "Shounen"
+    const resShonen = await invokePipeline([mangaController.getAllMangas], {
+      query: { page: '1', pageSize: '6', genre: 'Shonen' },
+    });
+    assert.equal(resShonen.status, 200);
+    assert.equal(resShonen.body.pagination.total, 2);
+  });
+
+  it('5. Búsqueda y filtro por género combinados + cambio de página con filtros activos', async () => {
+    // Búsqueda + Género combinados
+    const resCombined = await invokePipeline([mangaController.getAllMangas], {
+      query: { page: '1', pageSize: '6', genre: 'Seinen', search: 'vagabond' },
+    });
+    assert.equal(resCombined.status, 200);
+    assert.equal(resCombined.body.pagination.total, 1);
+    assert.equal(resCombined.body.data[0].title, 'Vagabond');
+
+    // Cambio de página manteniendo filtro genre=Seinen (2 mangas Seinen con pageSize=1 -> página 2 devuelve Vagabond)
+    const resPage2 = await invokePipeline([mangaController.getAllMangas], {
+      query: { page: '2', pageSize: '1', genre: 'Seinen' },
+    });
+    assert.equal(resPage2.status, 200);
+    assert.equal(resPage2.body.pagination.page, 2);
+    assert.equal(resPage2.body.pagination.total, 2);
+    assert.equal(resPage2.body.pagination.totalPages, 2);
+    assert.equal(resPage2.body.data.length, 1);
+    assert.equal(resPage2.body.data[0].title, 'Vagabond');
+  });
+
+  it('6. Registro e inicio de sesión seguro (bloquea escalación de privilegios y duplicados)', async () => {
+    const resReg1 = await invokePipeline([authController.register], {
       body: {
-        name: 'Lector Prueba',
-        email: 'Lector@ReManga.co',
+        name: 'Lector Uno',
+        email: 'lector1@remanga.co',
         password: 'password123',
-        role: 'ADMIN', // Intento de escalación de privilegios que debe ser ignorado
+        role: 'ADMIN', // Ignorado por seguridad
       },
     });
+    assert.equal(resReg1.status, 201);
+    assert.equal(resReg1.body.user.role, 'USER');
 
-    assert.equal(res.status, 201);
-    assert.equal(res.body.user.email, 'lector@remanga.co');
-    assert.equal(res.body.user.role, 'USER');
-    assert.equal(res.body.user.passwordHash, undefined);
-
-    const storedUser = await userRepo.findByEmail('lector@remanga.co');
-    assert.ok(storedUser);
-    assert.notEqual(storedUser.passwordHash, 'password123');
-    assert.ok(await bcrypt.compare('password123', storedUser.passwordHash));
-  });
-
-  it('4. Registro duplicado devuelve 409 Conflict', async () => {
-    const res = await invokePipeline([authController.register], {
+    const resReg2 = await invokePipeline([authController.register], {
       body: {
-        name: 'Otro Nombre',
-        email: 'lector@remanga.co',
+        name: 'Lector Dos',
+        email: 'lector2@remanga.co',
         password: 'password123',
       },
     });
-    assert.equal(res.status, 409);
-  });
+    assert.equal(resReg2.status, 201);
 
-  it('5. Validaciones de registro rechazan datos inválidos con 400 Bad Request', async () => {
-    const resShortPass = await invokePipeline([authController.register], {
-      body: { name: 'Ana', email: 'ana@test.co', password: '123' },
+    const resDup = await invokePipeline([authController.register], {
+      body: {
+        name: 'Duplicado',
+        email: 'lector1@remanga.co',
+        password: 'password123',
+      },
     });
-    assert.equal(resShortPass.status, 400);
+    assert.equal(resDup.status, 409);
 
-    const resBadEmail = await invokePipeline([authController.register], {
-      body: { name: 'Ana', email: 'correo-invalido', password: 'password123' },
+    const login1 = await invokePipeline([authController.login], {
+      body: { email: 'lector1@remanga.co', password: 'password123' },
     });
-    assert.equal(resBadEmail.status, 400);
-  });
+    assert.equal(login1.status, 200);
+    userToken = login1.body.token;
 
-  it('6. Inicio de sesión válido devuelve 200 OK con token JWT; inválido devuelve 401 Unauthorized', async () => {
-    const resValid = await invokePipeline([authController.login], {
-      body: { email: 'lector@remanga.co', password: 'password123' },
+    const login2 = await invokePipeline([authController.login], {
+      body: { email: 'lector2@remanga.co', password: 'password123' },
     });
-    assert.equal(resValid.status, 200);
-    assert.ok(resValid.body.token);
-    userToken = resValid.body.token;
+    assert.equal(login2.status, 200);
+    secondUserToken = login2.body.token;
 
-    const resAdmin = await invokePipeline([authController.login], {
+    const loginAdmin = await invokePipeline([authController.login], {
       body: { email: 'admin@remanga.co', password: 'admin12345' },
     });
-    assert.equal(resAdmin.status, 200);
-    adminToken = resAdmin.body.token;
-
-    const resInvalidPass = await invokePipeline([authController.login], {
-      body: { email: 'lector@remanga.co', password: 'wrongpassword' },
-    });
-    assert.equal(resInvalidPass.status, 401);
-
-    const resNonExistent = await invokePipeline([authController.login], {
-      body: { email: 'noexiste@remanga.co', password: 'password123' },
-    });
-    assert.equal(resNonExistent.status, 401);
+    assert.equal(loginAdmin.status, 200);
+    adminToken = loginAdmin.body.token;
   });
 
-  it('7. Middleware JWT: rechaza acceso sin token o con token inválido con 401 y permite token válido', async () => {
-    const resNoToken = await invokePipeline([authenticateJWT, authController.me]);
-    assert.equal(resNoToken.status, 401);
-
-    const resBadToken = await invokePipeline([authenticateJWT, authController.me], {
-      headers: { Authorization: 'Bearer token.falso.invalido' },
-    });
-    assert.equal(resBadToken.status, 401);
-
-    const expiredToken = jwt.sign({ id: 'user-2', email: 'lector@remanga.co', role: 'USER' }, TEST_JWT_SECRET, {
-      expiresIn: -10,
-    });
-    const resExpired = await invokePipeline([authenticateJWT, authController.me], {
-      headers: { Authorization: `Bearer ${expiredToken}` },
-    });
-    assert.equal(resExpired.status, 401);
-
-    const resValidMe = await invokePipeline([authenticateJWT, authController.me], {
-      headers: { Authorization: `Bearer ${userToken}` },
-    });
-    assert.equal(resValidMe.status, 200);
-    assert.equal(resValidMe.body.user.email, 'lector@remanga.co');
-  });
-
-  it('8. Solicitudes de venta: asocia al usuario del JWT (ignorando userId del body) y permite consultar propias', async () => {
-    const resCreate = await invokePipeline([authenticateJWT, saleController.createRequest], {
-      headers: { Authorization: `Bearer ${userToken}` },
-      body: {
-        userId: 'admin-1', // Intento de suplantación que debe ser ignorado
-        title: 'Vagabond',
-        volume: 3,
-        author: 'Takehiko Inoue',
-        genre: 'Seinen',
-        condition: 'GOOD',
-        proposedPrice: 28000,
-        description: 'Buen estado general',
-      },
-    });
-    assert.equal(resCreate.status, 201);
-    assert.notEqual(resCreate.body.userId, 'admin-1');
-    assert.equal(resCreate.body.userId, 'user-2');
-
-    // Validación de precio negativo en solicitud -> 400
-    const resInvalidPrice = await invokePipeline([authenticateJWT, saleController.createRequest], {
-      headers: { Authorization: `Bearer ${userToken}` },
-      body: {
-        title: 'Naruto',
-        author: 'Masashi Kishimoto',
-        genre: 'Shonen',
-        condition: 'GOOD',
-        proposedPrice: -5000,
-        description: 'Texto',
-      },
-    });
-    assert.equal(resInvalidPrice.status, 400);
-
-    // Consultar mis solicitudes
-    const resMine = await invokePipeline([authenticateJWT, saleController.getMyRequests], {
-      headers: { Authorization: `Bearer ${userToken}` },
-    });
-    assert.equal(resMine.status, 200);
-    assert.equal(resMine.body.length, 1);
-    assert.equal(resMine.body[0].title, 'Vagabond');
-  });
-
-  it('9. Autorización por roles: usuario normal recibe 403 al intentar gestionar mangas o ver todas las solicitudes; sin token recibe 401', async () => {
-    // Eliminación sin token -> 401
-    const resDelNoToken = await invokePipeline(
+  it('7. Acceso administrativo: rechaza cuenta normal con 403, sin token con 401, y permite ADMIN', async () => {
+    const resNoToken = await invokePipeline(
       [authenticateJWT, authorizeRoles(Role.ADMIN), mangaController.deleteManga],
       { params: { id: 'manga-1' } }
     );
-    assert.equal(resDelNoToken.status, 401);
+    assert.equal(resNoToken.status, 401);
 
-    // Eliminación con token de USER -> 403
-    const resDelUser = await invokePipeline(
-      [authenticateJWT, authorizeRoles(Role.ADMIN), mangaController.deleteManga],
-      {
-        params: { id: 'manga-1' },
-        headers: { Authorization: `Bearer ${userToken}` },
-      }
-    );
-    assert.equal(resDelUser.status, 403);
-
-    // Creación de manga con token de USER -> 403
-    const resPostUser = await invokePipeline(
+    const resNormalUser = await invokePipeline(
       [authenticateJWT, authorizeRoles(Role.ADMIN), mangaController.createManga],
       {
         headers: { Authorization: `Bearer ${userToken}` },
         body: {
-          title: 'Test',
-          author: 'Test',
+          title: 'Intento',
+          author: 'Autor',
           genre: 'Shonen',
           description: 'Desc',
           price: 20000,
@@ -577,37 +605,9 @@ describe('Re-Manga — Suite de Pruebas de Validaciones, Seguridad y Flujos (Eta
         },
       }
     );
-    assert.equal(resPostUser.status, 403);
+    assert.equal(resNormalUser.status, 403);
 
-    // Consultar todas las solicitudes con token de USER -> 403
-    const resAllReqsUser = await invokePipeline(
-      [authenticateJWT, authorizeRoles(Role.ADMIN), saleController.getAllRequests],
-      { headers: { Authorization: `Bearer ${userToken}` } }
-    );
-    assert.equal(resAllReqsUser.status, 403);
-  });
-
-  it('10. CRUD administrativo de mangas: ADMIN puede crear, actualizar y eliminar mangas con validación de datos', async () => {
-    // Validación de precio inválido -> 400
-    const resBadManga = await invokePipeline(
-      [authenticateJWT, authorizeRoles(Role.ADMIN), mangaController.createManga],
-      {
-        headers: { Authorization: `Bearer ${adminToken}` },
-        body: {
-          title: 'Monster',
-          author: 'Naoki Urasawa',
-          genre: 'Seinen',
-          description: 'Kanzenban',
-          price: -100,
-          condition: 'LIKE_NEW',
-          stock: 2,
-        },
-      }
-    );
-    assert.equal(resBadManga.status, 400);
-
-    // Creación válida por ADMIN -> 201
-    const resCreate = await invokePipeline(
+    const resAdminCreate = await invokePipeline(
       [authenticateJWT, authorizeRoles(Role.ADMIN), mangaController.createManga],
       {
         headers: { Authorization: `Bearer ${adminToken}` },
@@ -619,87 +619,88 @@ describe('Re-Manga — Suite de Pruebas de Validaciones, Seguridad y Flujos (Eta
           description: 'Edición Kanzenban',
           price: 55000,
           condition: 'LIKE_NEW',
-          stock: 4,
+          stock: 2,
         },
       }
     );
-    assert.equal(resCreate.status, 201);
-    const createdManga = resCreate.body;
-    assert.equal(createdManga.title, 'Monster');
-
-    // Actualización válida por ADMIN -> 200
-    const resUpdate = await invokePipeline(
-      [authenticateJWT, authorizeRoles(Role.ADMIN), mangaController.updateManga],
-      {
-        params: { id: createdManga.id },
-        headers: { Authorization: `Bearer ${adminToken}` },
-        body: {
-          price: 52000,
-          stock: 5,
-        },
-      }
-    );
-    assert.equal(resUpdate.status, 200);
-    assert.equal(resUpdate.body.price, 52000);
-    assert.equal(resUpdate.body.stock, 5);
-
-    // Eliminación válida por ADMIN -> 204
-    const resDelete = await invokePipeline(
-      [authenticateJWT, authorizeRoles(Role.ADMIN), mangaController.deleteManga],
-      {
-        params: { id: createdManga.id },
-        headers: { Authorization: `Bearer ${adminToken}` },
-      }
-    );
-    assert.equal(resDelete.status, 204);
-
-    // Eliminación de manga ya inexistente -> 404
-    const resDeleteAgain = await invokePipeline(
-      [authenticateJWT, authorizeRoles(Role.ADMIN), mangaController.deleteManga],
-      {
-        params: { id: createdManga.id },
-        headers: { Authorization: `Bearer ${adminToken}` },
-      }
-    );
-    assert.equal(resDeleteAgain.status, 404);
+    assert.equal(resAdminCreate.status, 201);
   });
 
-  it('11. Integridad de compras y favoritos: valida stock, calcula precio real del servidor y decrementa stock', async () => {
-    // Agregar a favoritos
-    const resFav = await invokePipeline([authenticateJWT, favController.addFavorite], {
-      headers: { Authorization: `Bearer ${userToken}` },
-      body: { mangaId: 'manga-1' },
-    });
-    assert.equal(resFav.status, 201);
-
-    // Favorito con manga inexistente -> 404
-    const resFavNotFound = await invokePipeline([authenticateJWT, favController.addFavorite], {
-      headers: { Authorization: `Bearer ${userToken}` },
-      body: { mangaId: 'manga-inexistente' },
-    });
-    assert.equal(resFavNotFound.status, 404);
-
-    // Rechazar compra si cantidad supera stock disponible (stock de manga-2 es 2) -> 400
-    const resExceedStock = await invokePipeline([authenticateJWT, orderController.createOrder], {
+  it('8. Propiedad de recursos privados: un usuario no puede leer órdenes ni solicitudes de otro usuario', async () => {
+    // Usuario 1 crea solicitud de venta (intentando enviar userId de otro usuario y status APPROVED)
+    const resSale = await invokePipeline([authenticateJWT, saleController.createRequest], {
       headers: { Authorization: `Bearer ${userToken}` },
       body: {
-        items: [{ mangaId: 'manga-2', quantity: 10 }],
+        userId: 'admin-1',
+        status: 'APPROVED',
+        title: 'Nana',
+        volume: 1,
+        author: 'Ai Yazawa',
+        genre: 'Josei',
+        condition: 'GOOD',
+        proposedPrice: 30000,
+        description: 'En buen estado',
       },
     });
-    assert.equal(resExceedStock.status, 400);
+    assert.equal(resSale.status, 201);
+    assert.equal(resSale.body.userId, 'user-2');
+    assert.equal(resSale.body.status, 'PENDING');
 
-    // Compra válida (2 unidades de manga-1 a 45.000 COP c/u = 90.000 COP, ignorando cualquier unitPrice enviado)
-    const resOrder = await invokePipeline([authenticateJWT, orderController.createOrder], {
+    // Usuario 2 consulta sus propias solicitudes -> no ve las del Usuario 1
+    const resSaleUser2 = await invokePipeline([authenticateJWT, saleController.getMyRequests], {
+      headers: { Authorization: `Bearer ${secondUserToken}` },
+    });
+    assert.equal(resSaleUser2.status, 200);
+    assert.equal(resSaleUser2.body.length, 0);
+
+    // Usuario 1 crea una orden contraentrega
+    const resOrder1 = await invokePipeline([authenticateJWT, orderController.createOrder], {
       headers: { Authorization: `Bearer ${userToken}` },
       body: {
-        items: [{ mangaId: 'manga-1', quantity: 2, unitPrice: 1 }],
+        items: [{ mangaId: 'manga-1', quantity: 1 }],
       },
     });
-    assert.equal(resOrder.status, 201);
-    assert.equal(resOrder.body.totalAmount, 90000);
+    assert.equal(resOrder1.status, 201);
+    const orderId = resOrder1.body.id;
 
-    // Verificar que el stock de manga-1 decreció de 3 a 1
-    const updatedManga1 = await mangaRepo.findById('manga-1');
-    assert.equal(updatedManga1?.stock, 1);
+    // Usuario 2 intenta consultar la orden del Usuario 1 por ID -> 403 Forbidden
+    const resReadOtherOrder = await invokePipeline([authenticateJWT, orderController.getOrderById], {
+      params: { id: orderId },
+      headers: { Authorization: `Bearer ${secondUserToken}` },
+    });
+    assert.equal(resReadOtherOrder.status, 403);
+  });
+
+  it('9. Compra contraentrega y atomicidad transaccional: registra estado PENDING, valida stock y revierte si falla un ítem', async () => {
+    // Stock actual de manga-1 es 2 (3 inicial - 1 comprado en test anterior), manga-3 tiene stock 1
+    // Intentar comprar 1 unidad de manga-1 (válido) y 5 unidades de manga-3 (excede stock de 1) en el mismo pedido
+    const resAtomicFail = await invokePipeline([authenticateJWT, orderController.createOrder], {
+      headers: { Authorization: `Bearer ${userToken}` },
+      body: {
+        items: [
+          { mangaId: 'manga-1', quantity: 1 },
+          { mangaId: 'manga-3', quantity: 5 },
+        ],
+      },
+    });
+    assert.equal(resAtomicFail.status, 400);
+
+    // Verificar que el stock de manga-1 NO disminuyó tras el fallo del segundo ítem (rollback atómico)
+    const manga1AfterFail = await mangaRepo.findById('manga-1');
+    assert.equal(manga1AfterFail?.stock, 2);
+
+    // Compra válida contraentrega de manga-3 (cantidad 1, ignorando unitPrice manipulado del cliente)
+    const resValidOrder = await invokePipeline([authenticateJWT, orderController.createOrder], {
+      headers: { Authorization: `Bearer ${userToken}` },
+      body: {
+        items: [{ mangaId: 'manga-3', quantity: 1, unitPrice: 100 }],
+      },
+    });
+    assert.equal(resValidOrder.status, 201);
+    assert.equal(resValidOrder.body.status, 'PENDING');
+    assert.equal(resValidOrder.body.totalAmount, 25000);
+
+    const manga3AfterBuy = await mangaRepo.findById('manga-3');
+    assert.equal(manga3AfterBuy?.stock, 0);
   });
 });

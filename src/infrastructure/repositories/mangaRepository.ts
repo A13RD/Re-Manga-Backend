@@ -1,4 +1,4 @@
-import { IMangaRepository, CreateMangaDTO, UpdateMangaDTO, Manga } from '../../domain/manga';
+import { IMangaRepository, CreateMangaDTO, UpdateMangaDTO, Manga, MangaFilterOptions } from '../../domain/manga';
 import { prisma } from '../database/prismaClient';
 import { MangaCondition, Prisma } from '@prisma/client';
 
@@ -13,17 +13,62 @@ function mapCondition(condition: string): MangaCondition {
   }
 }
 
+function buildGenreWhere(genreRaw: string): Prisma.MangaWhereInput {
+  const normalized = genreRaw.trim().toLowerCase();
+  if (normalized === 'shonen' || normalized === 'shounen') {
+    return {
+      OR: [
+        { genre: { equals: 'Shonen', mode: 'insensitive' } },
+        { genre: { equals: 'Shounen', mode: 'insensitive' } },
+      ],
+    };
+  }
+  if (normalized === 'shojo' || normalized === 'shoujo') {
+    return {
+      OR: [
+        { genre: { equals: 'Shojo', mode: 'insensitive' } },
+        { genre: { equals: 'Shoujo', mode: 'insensitive' } },
+      ],
+    };
+  }
+  return {
+    genre: { equals: genreRaw.trim(), mode: 'insensitive' },
+  };
+}
+
 export class MangaRepository implements IMangaRepository {
-  async findAll(page: number, pageSize: number): Promise<{ data: Manga[]; total: number }> {
+  async findAll(
+    page: number,
+    pageSize: number,
+    filters?: MangaFilterOptions
+  ): Promise<{ data: Manga[]; total: number }> {
     const skip = (page - 1) * pageSize;
-    
+    const andConditions: Prisma.MangaWhereInput[] = [];
+
+    if (filters?.search && filters.search.trim().length > 0) {
+      andConditions.push({
+        title: {
+          contains: filters.search.trim(),
+          mode: 'insensitive',
+        },
+      });
+    }
+
+    if (filters?.genre && filters.genre.trim().length > 0 && filters.genre.trim().toLowerCase() !== 'todos') {
+      andConditions.push(buildGenreWhere(filters.genre));
+    }
+
+    const where: Prisma.MangaWhereInput =
+      andConditions.length > 0 ? { AND: andConditions } : {};
+
     const [data, total] = await Promise.all([
       prisma.manga.findMany({
+        where,
         skip,
         take: pageSize,
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
       }),
-      prisma.manga.count()
+      prisma.manga.count({ where }),
     ]);
 
     return { data: data as any, total };

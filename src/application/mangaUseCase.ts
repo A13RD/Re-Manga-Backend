@@ -1,13 +1,13 @@
-import { IMangaRepository, CreateMangaDTO, UpdateMangaDTO } from '../domain/manga';
+import { IMangaRepository, CreateMangaDTO, UpdateMangaDTO, MangaFilterOptions } from '../domain/manga';
 
 export class MangaUseCase {
   constructor(private mangaRepository: IMangaRepository) {}
 
-  async getAllMangas(page: number, pageSize: number) {
+  async getAllMangas(page: number, pageSize: number, filters?: MangaFilterOptions) {
     if (page < 1) page = 1;
     if (pageSize < 1) pageSize = 6;
     
-    const { data, total } = await this.mangaRepository.findAll(page, pageSize);
+    const { data, total } = await this.mangaRepository.findAll(page, pageSize, filters);
     const totalPages = Math.ceil(total / pageSize);
     
     return {

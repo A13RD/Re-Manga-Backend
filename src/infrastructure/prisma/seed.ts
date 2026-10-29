@@ -1,5 +1,10 @@
+import 'dotenv/config';
+import crypto from 'node:crypto';
+import bcrypt from 'bcrypt';
 import { Role, MangaCondition, Prisma } from '@prisma/client';
 import { prisma } from '../database/prismaClient';
+
+const BCRYPT_SALT_ROUNDS = 10;
 
 function mapCondition(estado: string): MangaCondition {
   switch (estado.toLowerCase()) {
@@ -11,24 +16,87 @@ function mapCondition(estado: string): MangaCondition {
   }
 }
 
-async function main() {
-  console.log('Iniciando seed de base de datos...');
+async function ensureAdminUser() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const rawAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminName = process.env.ADMIN_NAME?.trim() || 'Admin Re-Manga';
 
-  // 1. Crear un usuario administrador inicial
-  const adminUser = await prisma.user.upsert({
-    where: { email: 'admin@remanga.com' },
-    update: {},
-    create: {
-      name: 'Admin Re-Manga',
-      email: 'admin@remanga.com',
-      passwordHash: 'dummy_hash_to_be_replaced', // Se reemplazará con bcrypt después
+  if (isProduction && !rawAdminEmail) {
+    throw new Error('En producción es obligatorio definir ADMIN_EMAIL en las variables de entorno para ejecutar el seed.');
+  }
+
+  const adminEmail = rawAdminEmail || 'admin@remanga.com';
+  const existingUser = await prisma.user.findUnique({
+    where: { email: adminEmail },
+  });
+
+  if (existingUser) {
+    const updateData: { role: Role; passwordHash?: string } = {
+      role: Role.ADMIN,
+    };
+
+    if (adminPassword && adminPassword.length >= 8) {
+      updateData.passwordHash = await bcrypt.hash(adminPassword, BCRYPT_SALT_ROUNDS);
+    }
+
+    const promotedUser = await prisma.user.update({
+      where: { email: adminEmail },
+      data: updateData,
+    });
+
+    console.log(
+      `Cuenta administrativa verificada/promovida (rol: ${promotedUser.role}) para el correo: ${promotedUser.email}`
+    );
+    return promotedUser;
+  }
+
+  if (isProduction && (!adminPassword || adminPassword.length < 8)) {
+    throw new Error(
+      'En producción es obligatorio definir ADMIN_PASSWORD (mínimo 8 caracteres) para crear un nuevo administrador.'
+    );
+  }
+
+  const passwordToHash =
+    adminPassword && adminPassword.length >= 8
+      ? adminPassword
+      : crypto.randomBytes(24).toString('hex');
+
+  const passwordHash = await bcrypt.hash(passwordToHash, BCRYPT_SALT_ROUNDS);
+
+  const createdAdmin = await prisma.user.create({
+    data: {
+      name: adminName,
+      email: adminEmail,
+      passwordHash,
       role: Role.ADMIN,
     },
   });
 
-  console.log(`Usuario administrador creado con ID: ${adminUser.id}`);
+  console.log(`Usuario administrador creado con ID: ${createdAdmin.id} (${createdAdmin.email})`);
+  if (!adminPassword) {
+    console.log(
+      'Nota: Para asignar rol ADMIN a tu propia cuenta registrada o definir su clave inicial, configura ADMIN_EMAIL (y opcionalmente ADMIN_PASSWORD) en tu archivo .env y vuelve a ejecutar el seed.'
+    );
+  }
 
-  // 2. Datos de los mangas iniciales, extraídos de script.js
+  return createdAdmin;
+}
+
+async function main() {
+  console.log('Iniciando seed de base de datos...');
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // 1. Crear o promover de forma idempotente y segura la cuenta administradora
+  const adminUser = await ensureAdminUser();
+
+  // En producción no se insertan mangas de prueba a menos que se habilite explícitamente SEED_CATALOG=true
+  if (isProduction && process.env.SEED_CATALOG !== 'true') {
+    console.log('Entorno de producción detectado: se omite la inserción del catálogo de prueba.');
+    return;
+  }
+
+  // 2. Datos de los mangas iniciales
   const mangasData = [
     { titulo: "Berserk", volumen: 28, autor: "Kentaro Miura", genero: "Seinen", precio: 45000, estado: "Muy buen estado", imagen: "/images/berserk-vol28.jpg" },
     { titulo: "Vagabond", volumen: 24, autor: "Takehiko Inoue", genero: "Seinen", precio: 40000, estado: "Buen estado", imagen: "/images/vagabond-vol24.jpg" },

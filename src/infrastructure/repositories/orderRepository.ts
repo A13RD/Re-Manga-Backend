@@ -22,25 +22,33 @@ export class OrderRepository implements IOrderRepository {
         });
 
         if (!manga) {
-          throw new Error(`El manga solicitado no fue encontrado`);
+          throw new Error('El manga solicitado no fue encontrado');
         }
 
-        if (manga.stock < item.quantity) {
-          throw new Error(`Stock insuficiente para "${manga.title}". Disponibles: ${manga.stock}`);
-        }
-
-        const unitPriceNum = Number(manga.price);
-        totalAmount += unitPriceNum * item.quantity;
-
-        // Decremento atómico del stock dentro de la transacción
-        await tx.manga.update({
-          where: { id: item.mangaId },
+        // Decremento condicional y atómico a nivel de fila (WHERE id = ? AND stock >= ?)
+        // Protege contra condiciones de carrera en compras simultáneas para evitar stock negativo
+        const updateResult = await tx.manga.updateMany({
+          where: {
+            id: item.mangaId,
+            stock: {
+              gte: item.quantity,
+            },
+          },
           data: {
             stock: {
               decrement: item.quantity,
             },
           },
         });
+
+        if (updateResult.count === 0) {
+          const latestManga = await tx.manga.findUnique({ where: { id: item.mangaId } });
+          const currentStock = latestManga?.stock ?? 0;
+          throw new Error(`Stock insuficiente para "${manga.title}". Disponibles: ${currentStock}`);
+        }
+
+        const unitPriceNum = Number(manga.price);
+        totalAmount += unitPriceNum * item.quantity;
 
         orderItemsData.push({
           mangaId: item.mangaId,
@@ -49,11 +57,12 @@ export class OrderRepository implements IOrderRepository {
         });
       }
 
+      // El pedido se registra en estado PENDING coherente con el modelo de pago contraentrega
       const order = await tx.order.create({
         data: {
           userId,
           totalAmount: new Prisma.Decimal(totalAmount),
-          status: PrismaOrderStatus.COMPLETED,
+          status: PrismaOrderStatus.PENDING,
           orderItems: {
             create: orderItemsData,
           },
@@ -102,4 +111,3 @@ export class OrderRepository implements IOrderRepository {
     return order as unknown as Order | null;
   }
 }
-

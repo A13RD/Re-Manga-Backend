@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { MangaUseCase } from '../../application/mangaUseCase.js';
-import { CreateMangaDTO, UpdateMangaDTO } from '../../domain/manga.js';
+import { CreateMangaDTO, UpdateMangaDTO, MangaFilterOptions } from '../../domain/manga.js';
 
 const VALID_CONDITIONS = ['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'POOR'];
 
@@ -11,6 +11,8 @@ export class MangaController {
     try {
       const rawPage = req.query['page'];
       const rawPageSize = req.query['pageSize'];
+      const rawSearch = req.query['search'];
+      const rawGenre = req.query['genre'];
 
       const page = rawPage !== undefined && rawPage !== '' ? Number(rawPage) : 1;
       const pageSize = rawPageSize !== undefined && rawPageSize !== '' ? Number(rawPageSize) : 6;
@@ -25,7 +27,19 @@ export class MangaController {
         return res.status(400).json({ message: 'Invalid pagination parameters' });
       }
 
-      const result = await this.mangaUseCase.getAllMangas(page, pageSize);
+      const filters: MangaFilterOptions = {};
+      if (typeof rawSearch === 'string' && rawSearch.trim().length > 0) {
+        filters.search = rawSearch.trim();
+      }
+      if (
+        typeof rawGenre === 'string' &&
+        rawGenre.trim().length > 0 &&
+        rawGenre.trim().toLowerCase() !== 'todos'
+      ) {
+        filters.genre = rawGenre.trim();
+      }
+
+      const result = await this.mangaUseCase.getAllMangas(page, pageSize, filters);
       res.json(result);
     } catch (error) {
       next(error);
