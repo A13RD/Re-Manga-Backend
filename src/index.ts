@@ -3,6 +3,7 @@ dotenv.config();
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import authRoutes from './interface/routes/authRoutes';
 import mangaRoutes from './interface/routes/mangaRoutes';
 import saleRequestRoutes from './interface/routes/saleRequestRoutes';
 import { errorHandler } from './interface/middlewares/errorHandler';
@@ -21,6 +22,7 @@ app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', uptime: process.uptime() });
 });
 
+app.use('/api/auth', authRoutes);
 app.use('/api/mangas', mangaRoutes);
 app.use('/api/solicitudes', saleRequestRoutes);
 

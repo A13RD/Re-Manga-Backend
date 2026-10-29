@@ -1,15 +1,23 @@
 import { Request, Response, NextFunction } from 'express';
+import { AppError } from '../../domain/errors';
 
-export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('Error:', err.message);
+export const errorHandler = (err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  const errorObj = err as { message?: string; code?: string; statusCode?: number };
+  console.error('Error procesado:', errorObj?.message || err);
 
-  // Prisma errors
-  if (err.code === 'P2002') {
-    return res.status(409).json({ message: 'A conflict occurred: Unique constraint failed.' });
+  // Errores controlados de la aplicación (AppError: ValidationError, UnauthorizedError, etc.)
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({ message: err.message });
   }
-  if (err.code === 'P2025') {
-    return res.status(404).json({ message: 'Resource not found.' });
+
+  // Errores específicos de Prisma ORM
+  if (errorObj?.code === 'P2002') {
+    return res.status(409).json({ message: 'Conflicto: Ya existe un registro con esos datos únicos.' });
+  }
+  if (errorObj?.code === 'P2025') {
+    return res.status(404).json({ message: 'Recurso no encontrado.' });
   }
 
+  // Error 500 genérico sin exponer trazas de pila (stack traces) al cliente
   res.status(500).json({ message: 'Internal server error' });
 };
